@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { NavBar } from '../_navbar';
 
 interface User {
   id: number;
@@ -110,19 +111,9 @@ export default function AdminPage() {
   // 管理画面
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-blue-400">管理画面</h1>
-          <div className="flex gap-6 items-center">
-            <Link href="/" className="text-gray-400 hover:text-gray-200 transition-colors">一覧</Link>
-            <Link href="/chart" className="text-gray-400 hover:text-gray-200 transition-colors">チャート</Link>
-            <Link href="/report" className="text-gray-400 hover:text-gray-200 transition-colors">AIレポート</Link>
-            <span className="text-blue-400 font-semibold border-b-2 border-blue-400 pb-1">管理</span>
-          </div>
-        </div>
-      </nav>
+      <NavBar active="admin" />
 
-      <main className="max-w-2xl mx-auto px-6 py-8">
+      <main className="max-w-2xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
         {/* ユーザー追加 */}
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">ユーザーを追加</h2>

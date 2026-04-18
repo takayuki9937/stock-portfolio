@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { NavBar } from '../_navbar';
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 interface User    { id: number; name: string }
@@ -368,18 +368,7 @@ export function ReportContent() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Nav */}
-      <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-blue-400">株ポートフォリオ</h1>
-          <div className="flex gap-6 items-center">
-            <Link href="/" className="text-gray-400 hover:text-gray-200 transition-colors">一覧</Link>
-            <Link href="/chart" className="text-gray-400 hover:text-gray-200 transition-colors">チャート</Link>
-            <Link href="/report" className="text-blue-400 font-semibold border-b-2 border-blue-400 pb-1">AIレポート</Link>
-            <Link href="/admin" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">管理</Link>
-          </div>
-        </div>
-      </nav>
+      <NavBar active="report" />
 
       {/* User tabs */}
       <div className="bg-gray-900 border-b border-gray-800">
@@ -397,7 +386,7 @@ export function ReportContent() {
         </div>
       </div>
 
-      <main className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-6 sm:space-y-8">
         {activeUserId !== null && (
           <>
             <StockSection userId={activeUserId} holdings={holdings} />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import Link from 'next/link';
+import { NavBar } from '../_navbar';
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 interface User    { id: number; name: string }
@@ -604,18 +604,7 @@ export function ChartContent() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Nav */}
-      <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-blue-400">株ポートフォリオ</h1>
-          <div className="flex gap-6 items-center">
-            <Link href="/" className="text-gray-400 hover:text-gray-200 transition-colors">一覧</Link>
-            <Link href="/chart" className="text-blue-400 font-semibold border-b-2 border-blue-400 pb-1">チャート</Link>
-            <Link href="/report" className="text-gray-400 hover:text-gray-200 transition-colors">AIレポート</Link>
-            <Link href="/admin" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">管理</Link>
-          </div>
-        </div>
-      </nav>
+      <NavBar active="chart" />
 
       {/* User tabs */}
       <div className="bg-gray-900 border-b border-gray-800">
@@ -633,7 +622,7 @@ export function ChartContent() {
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
 
           {/* ── Row 1: ticker / chart type ── */}
@@ -681,7 +670,7 @@ export function ChartContent() {
                 const tooLong = PERIOD_DAYS[p] > INTERVAL_MAX_DAYS[interval] && chartType === 'candle';
                 return (
                   <button key={p} onClick={() => handlePeriod(p)}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                    className={`px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
                       period === p ? 'bg-gray-600 text-white'
                         : tooLong ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
                         : 'bg-gray-800 text-gray-400 hover:bg-gray-700'

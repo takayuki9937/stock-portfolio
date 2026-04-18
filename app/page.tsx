@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { NavBar } from './_navbar';
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 interface User    { id: number; name: string }
@@ -283,7 +284,7 @@ function StocksSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
           onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500 w-36" min="0.01" step="any" required />
         <button type="submit" disabled={submitting}
-          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors">
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors min-h-[44px]">
           {submitting ? '追加中...' : '+ 追加'}
         </button>
       </form>
@@ -294,53 +295,32 @@ function StocksSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
       ) : holdings.length === 0 ? (
         <p className="text-gray-500 text-sm text-center py-6">銘柄が登録されていません</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 uppercase">
-                <th className="pb-2 text-left">銘柄</th>
-                <th className="pb-2 text-right">株数</th>
-                <th className="pb-2 text-right">取得価格</th>
-                <th className="pb-2 text-right">現在価格</th>
-                <th className="pb-2 text-right">評価額</th>
-                <th className="pb-2 text-right">円換算</th>
-                <th className="pb-2 text-right">損益</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {holdings.map((h) => {
-                const cur = h.market === 'JP' ? '¥' : '$';
-                const val_jpy = toJpy(h);
-                return (
-                  <tr key={h.id} className="hover:bg-gray-800/40 transition-colors">
-                    <td className="py-2.5 pr-2">
-                      <span className="font-bold text-blue-400">{h.ticker}</span>
-                      <span className="ml-1 text-xs">{h.market === 'JP' ? '🇯🇵' : '🇺🇸'}</span>
-                      {h.company_name && <p className="text-xs text-gray-500 truncate max-w-32">{h.company_name}</p>}
-                    </td>
-                    <td className="py-2.5 text-right text-gray-300">{h.shares}</td>
-                    <td className="py-2.5 text-right text-gray-300">{cur}{h.cost_price.toFixed(h.market === 'JP' ? 0 : 2)}</td>
-                    <td className="py-2.5 text-right text-gray-300">
-                      {h.current_price != null ? `${cur}${h.current_price.toFixed(h.market === 'JP' ? 0 : 2)}` : '-'}
-                    </td>
-                    <td className="py-2.5 text-right text-gray-300">
-                      {h.market_value != null ? `${cur}${h.market_value.toLocaleString('en-US', { minimumFractionDigits: h.market === 'JP' ? 0 : 2, maximumFractionDigits: h.market === 'JP' ? 0 : 2 })}` : '-'}
-                    </td>
-                    <td className="py-2.5 text-right text-gray-300">
-                      {val_jpy != null ? jpy(val_jpy) : '-'}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <PnlBadge pct={h.pnl_pct ?? null} />
-                    </td>
-                    <td className="py-2.5 text-right pl-2">
-                      <button onClick={() => handleDelete(h.id)} className="text-red-400 hover:text-red-300 text-xs transition-colors">削除</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-2 mt-2">
+          {holdings.map((h) => {
+            const cur = h.market === 'JP' ? '¥' : '$';
+            const val_jpy = toJpy(h);
+            return (
+              <div key={h.id} className="bg-gray-800/50 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-blue-400 text-base">{h.ticker}</span>
+                    <span className="text-sm">{h.market === 'JP' ? '🇯🇵' : '🇺🇸'}</span>
+                  </div>
+                  {h.company_name && <p className="text-xs text-gray-500 truncate">{h.company_name}</p>}
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-gray-400">
+                    <span>{h.shares}株</span>
+                    <span>取得 {cur}{h.cost_price.toFixed(h.market === 'JP' ? 0 : 2)}</span>
+                    {h.current_price != null && <span>現在 {cur}{h.current_price.toFixed(h.market === 'JP' ? 0 : 2)}</span>}
+                    {val_jpy != null && <span>円換算 {jpy(val_jpy)}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <PnlBadge pct={h.pnl_pct ?? null} />
+                  <button onClick={() => handleDelete(h.id)} className="text-red-400 hover:text-red-300 text-xs min-w-[44px] text-right transition-colors">削除</button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -478,60 +458,34 @@ function TsumitateSgment({ userId }: { userId: number }) {
       ) : items.length === 0 ? (
         <p className="text-gray-500 text-sm text-center py-6 mt-4">ファンドが登録されていません</p>
       ) : (
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 uppercase">
-                <th className="pb-2 text-left">ファンド</th>
-                <th className="pb-2 text-right">積立方法</th>
-                <th className="pb-2 text-right">積立月数</th>
-                <th className="pb-2 text-right">基準価額</th>
-                <th className="pb-2 text-right">評価額</th>
-                <th className="pb-2 text-right">投資総額</th>
-                <th className="pb-2 text-right">損益</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {items.map((it) => (
-                <tr key={it.id} className="hover:bg-gray-800/40 transition-colors">
-                  <td className="py-2.5 pr-2">
-                    <p className="font-semibold text-blue-300 leading-snug max-w-52 truncate">{it.fund_name}</p>
-                    <p className="text-xs text-gray-500">{it.fund_code} · {it.broker}</p>
-                  </td>
-                  <td className="py-2.5 text-right text-gray-400 text-xs">
-                    {it.accumulation_type === 'amount'
-                      ? `¥${it.monthly_amount.toLocaleString()}/月`
-                      : `${it.monthly_units.toLocaleString()}口/月`}
-                  </td>
-                  <td className="py-2.5 text-right text-gray-300">{it.months}ヶ月</td>
-                  <td className="py-2.5 text-right text-gray-300">
-                    {it.nav != null ? `¥${it.nav.toLocaleString()}` : <span className="text-gray-600">取得中</span>}
-                  </td>
-                  <td className="py-2.5 text-right font-semibold">
-                    {it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}
-                  </td>
-                  <td className="py-2.5 text-right text-gray-400">{jpy(it.cost_jpy)}</td>
-                  <td className="py-2.5 text-right">
-                    {it.pnl_jpy != null ? (
-                      <div>
-                        <p className={`font-semibold text-xs ${pnlColor(it.pnl_jpy)}`}>
-                          {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
-                        </p>
-                        <p className={`text-xs ${pnlColor(it.pnl_pct)}`}>
-                          {it.pnl_pct != null ? `${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%` : ''}
-                        </p>
-                      </div>
-                    ) : '-'}
-                  </td>
-                  <td className="py-2.5 text-right pl-2">
-                    <button onClick={() => handleDelete(it.id)}
-                      className="text-red-400 hover:text-red-300 text-xs transition-colors">削除</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-2 mt-4">
+          {items.map((it) => (
+            <div key={it.id} className="bg-gray-800/50 rounded-lg px-4 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-blue-300 leading-snug text-sm truncate">{it.fund_name}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{it.fund_code} · {it.broker}</p>
+                </div>
+                <button onClick={() => handleDelete(it.id)}
+                  className="text-red-400 hover:text-red-300 text-xs shrink-0 min-w-[44px] text-right transition-colors">削除</button>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-400">
+                <span>{it.accumulation_type === 'amount' ? `¥${it.monthly_amount.toLocaleString()}/月` : `${it.monthly_units.toLocaleString()}口/月`}</span>
+                <span>{it.months}ヶ月積立</span>
+                <span>基準価額 {it.nav != null ? `¥${it.nav.toLocaleString()}` : '取得中'}</span>
+                <span>投資総額 {jpy(it.cost_jpy)}</span>
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-sm font-bold">{it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}</span>
+                {it.pnl_jpy != null && (
+                  <span className={`text-xs font-semibold ${pnlColor(it.pnl_jpy)}`}>
+                    {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
+                    {it.pnl_pct != null && ` (${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%)`}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -614,7 +568,7 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
             <>
               <select value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value as 'JP' | 'US' })}
                 className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500">
-                <option value="JP">🇯🇵 日本株・ETF</option>
+                <option value="JP">���🇵 日本株・ETF</option>
                 <option value="US">🇺🇸 米国株・ETF</option>
               </select>
               <input type="text" placeholder={form.market === 'JP' ? 'コード (例: 1306)' : 'コード (例: VTI)'}
@@ -650,53 +604,41 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
       ) : items.length === 0 ? (
         <p className="text-gray-500 text-sm text-center py-6 mt-4">登録がありません</p>
       ) : (
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 uppercase">
-                <th className="pb-2 text-left">銘柄</th>
-                <th className="pb-2 text-right">数量</th>
-                <th className="pb-2 text-right">取得価格</th>
-                <th className="pb-2 text-right">現在価格</th>
-                <th className="pb-2 text-right">評価額(円)</th>
-                <th className="pb-2 text-right">損益(円)</th>
-                <th className="pb-2 text-right">損益率</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {items.map((it) => {
-                const cur = it.market === 'US' ? '$' : '¥';
-                const priceLabel = it.type === 'fund' ? `¥${it.purchase_price.toLocaleString()}/万口` : `${cur}${it.purchase_price.toLocaleString()}`;
-                const curPriceLabel = it.current_price != null
-                  ? (it.type === 'fund' ? `¥${it.current_price.toLocaleString()}/万口` : `${cur}${it.current_price.toFixed(it.market === 'JP' ? 0 : 2)}`)
-                  : '-';
-                return (
-                  <tr key={it.id} className="hover:bg-gray-800/40 transition-colors">
-                    <td className="py-2.5 pr-2">
-                      <p className="font-semibold text-blue-300 truncate max-w-48">{it.fund_name}</p>
-                      <p className="text-xs text-gray-500">{it.code} · {it.type === 'fund' ? '投信' : it.market === 'JP' ? '🇯🇵' : '🇺🇸'} · {it.purchase_date}</p>
-                    </td>
-                    <td className="py-2.5 text-right text-gray-300">{it.units_or_shares.toLocaleString()}</td>
-                    <td className="py-2.5 text-right text-gray-300 text-xs">{priceLabel}</td>
-                    <td className="py-2.5 text-right text-gray-300 text-xs">{curPriceLabel}</td>
-                    <td className="py-2.5 text-right font-semibold">
-                      {it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}
-                    </td>
-                    <td className={`py-2.5 text-right font-semibold text-sm ${pnlColor(it.pnl_jpy)}`}>
-                      {it.pnl_jpy != null ? `${pnlSign(it.pnl_jpy)}${jpy(it.pnl_jpy)}` : '-'}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <PnlBadge pct={it.pnl_pct} />
-                    </td>
-                    <td className="py-2.5 text-right pl-2">
-                      <button onClick={() => handleDelete(it.id)} className="text-red-400 hover:text-red-300 text-xs transition-colors">削除</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-2 mt-4">
+          {items.map((it) => {
+            const cur = it.market === 'US' ? '$' : '¥';
+            const priceLabel = it.type === 'fund' ? `¥${it.purchase_price.toLocaleString()}/万口` : `${cur}${it.purchase_price.toLocaleString()}`;
+            const curPriceLabel = it.current_price != null
+              ? (it.type === 'fund' ? `¥${it.current_price.toLocaleString()}/万口` : `${cur}${it.current_price.toFixed(it.market === 'JP' ? 0 : 2)}`)
+              : '-';
+            return (
+              <div key={it.id} className="bg-gray-800/50 rounded-lg px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-blue-300 text-sm truncate">{it.fund_name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {it.code} · {it.type === 'fund' ? '投信' : it.market === 'JP' ? '🇯🇵' : '🇺🇸'} · {it.purchase_date}
+                    </p>
+                  </div>
+                  <button onClick={() => handleDelete(it.id)} className="text-red-400 hover:text-red-300 text-xs shrink-0 min-w-[44px] text-right transition-colors">削除</button>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-400">
+                  <span>{it.units_or_shares.toLocaleString()}{it.type === 'fund' ? '口' : '株'}</span>
+                  <span>取得 {priceLabel}</span>
+                  <span>現在 {curPriceLabel}</span>
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-sm font-bold">{it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}</span>
+                  {it.pnl_jpy != null && (
+                    <span className={`text-xs font-semibold ${pnlColor(it.pnl_jpy)}`}>
+                      {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
+                      {it.pnl_pct != null && ` (${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%)`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -724,18 +666,7 @@ export default function PortfolioPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Nav */}
-      <nav className="bg-gray-900 border-b border-gray-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-blue-400">株ポートフォリオ</h1>
-          <div className="flex gap-6 items-center">
-            <Link href="/" className="text-blue-400 font-semibold border-b-2 border-blue-400 pb-1">ポートフォリオ</Link>
-            <Link href="/chart" className="text-gray-400 hover:text-gray-200 transition-colors">チャート</Link>
-            <Link href="/report" className="text-gray-400 hover:text-gray-200 transition-colors">AIレポート</Link>
-            <Link href="/admin" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">管理</Link>
-          </div>
-        </div>
-      </nav>
+      <NavBar active="portfolio" />
 
       {/* User tabs */}
       <div className="bg-gray-900 border-b border-gray-800">
@@ -753,7 +684,7 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
         {/* 為替レート */}
         <div className="flex items-center gap-2 mb-5 text-sm">
           {fxLoading ? (
