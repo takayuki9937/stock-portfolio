@@ -6,12 +6,18 @@ import { NavBar } from '../_navbar';
 /* ─── Types ──────────────────────────────────────────────────────── */
 interface User    { id: number; name: string }
 interface Holding { id: number; user_id: number; ticker: string; market: 'US' | 'JP' }
+interface FundItem { fund_code: string; fund_name: string }
 interface HistoryPoint {
   date: string; open: number; high: number; low: number; close: number; volume?: number;
 }
+interface FundHistoryPoint { date: string; nav: number }
 type Period    = 'day' | 'week' | 'month' | 'year';
+type FundRange = '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y';
 type ChartType = 'line' | 'candle';
 type Interval  = '1m' | '5m' | '15m' | '60m' | '1d' | '1wk' | '1mo';
+type SelectedItem =
+  | { kind: 'stock'; ticker: string; market: 'US' | 'JP' }
+  | { kind: 'fund'; fundCode: string; fundName: string };
 
 /* ─── Constants ──────────────────────────────────────────────────── */
 const INTERVAL_MAX_DAYS: Record<Interval, number> = {
@@ -487,17 +493,94 @@ function ToggleBtn({ label, active, activeColor, onClick }: {
   );
 }
 
+/* ─── FundLineChart ──────────────────────────────────────────────── */
+function FundLineChart({
+  data, hoverIdx, setHoverIdx,
+}: {
+  data: FundHistoryPoint[];
+  hoverIdx: number | null;
+  setHoverIdx: (i: number | null) => void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const H = 380, PT = 16, PB = 32, CH = H - PT - PB;
+
+  const vals = data.map((d) => d.nav);
+  const minP = Math.min(...vals) * 0.998;
+  const maxP = Math.max(...vals) * 1.002;
+  const xs   = CW / data.length;
+  const tx   = (i: number) => PAD_L + i * xs + xs / 2;
+  const ty   = (v: number) => PT + CH - ((v - minP) / (maxP - minP)) * CH;
+  const yt   = Array.from({ length: 5 }, (_, i) => minP + (maxP - minP) * (i / 4));
+  const xtI  = xTickIndexes(data.length);
+  const fmt  = (v: number) => v.toLocaleString('ja-JP');
+
+  const linePath = vals.reduce((d, v, i) =>
+    d + (i === 0 ? `M${tx(i)} ${ty(v)}` : ` L${tx(i)} ${ty(v)}`), '');
+
+  const hd = hoverIdx !== null ? data[hoverIdx] : null;
+
+  return (
+    <div className="relative w-full" style={{ aspectRatio: `${SVG_W}/${H}` }}>
+      <svg ref={svgRef} viewBox={`0 0 ${SVG_W} ${H}`} className="w-full h-full cursor-crosshair"
+        onMouseMove={(e) => {
+          const r = svgRef.current?.getBoundingClientRect();
+          if (!r) return;
+          const idx = Math.floor(((e.clientX - r.left) / r.width * SVG_W - PAD_L) / xs);
+          setHoverIdx(idx >= 0 && idx < data.length ? idx : null);
+        }}
+        onMouseLeave={() => setHoverIdx(null)}>
+
+        {yt.map((v, i) => (
+          <line key={i} x1={PAD_L} y1={ty(v)} x2={PAD_L + CW} y2={ty(v)} stroke="#374151" strokeDasharray="3 3" />
+        ))}
+
+        <path d={linePath} fill="none" stroke="#3B82F6" strokeWidth={2} />
+
+        {hoverIdx !== null && (
+          <line x1={tx(hoverIdx)} y1={PT} x2={tx(hoverIdx)} y2={PT + CH}
+            stroke="#9CA3AF" strokeWidth={1} strokeDasharray="4 2" />
+        )}
+
+        {yt.map((v, i) => (
+          <text key={i} x={PAD_L - 4} y={ty(v) + 4} textAnchor="end" fill="#9CA3AF" fontSize={11}>
+            {fmt(Math.round(v))}
+          </text>
+        ))}
+
+        {xtI.map((idx) => (
+          <text key={idx} x={tx(idx)} y={H - PB + 16} textAnchor="middle" fill="#9CA3AF" fontSize={11}>
+            {new Date(data[idx].date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}
+          </text>
+        ))}
+
+        <rect x={PAD_L} y={PT} width={CW} height={CH} fill="none" stroke="#4B5563" />
+      </svg>
+
+      {hd && hoverIdx !== null && (
+        <div className="absolute top-1 left-0 pointer-events-none bg-gray-800/95 border border-gray-600 rounded-lg px-3 py-2 text-xs shadow-xl z-10">
+          <p className="text-gray-400 font-semibold border-b border-gray-700 pb-1 mb-1">
+            {new Date(hd.date).toLocaleDateString('ja-JP')}
+          </p>
+          <p className="text-gray-300">基準価額 <span className="text-blue-400 font-bold ml-1">¥{fmt(hd.nav)}</span></p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── ChartPage ──────────────────────────────────────────────────── */
 export function ChartContent() {
   const [users, setUsers]                   = useState<User[]>([]);
   const [activeUserId, setActiveUserId]     = useState<number | null>(null);
   const [holdings, setHoldings]             = useState<Holding[]>([]);
-  const [selectedTicker, setSelectedTicker] = useState('');
-  const [selectedMarket, setSelectedMarket] = useState<'US' | 'JP'>('US');
+  const [funds, setFunds]                   = useState<FundItem[]>([]);
+  const [selected, setSelected]             = useState<SelectedItem | null>(null);
   const [period, setPeriod]                 = useState<Period>('month');
+  const [fundRange, setFundRange]           = useState<FundRange>('1Y');
   const [interval, setInterval]             = useState<Interval>('1d');
   const [chartType, setChartType]           = useState<ChartType>('candle');
   const [history, setHistory]               = useState<HistoryPoint[]>([]);
+  const [fundHistory, setFundHistory]       = useState<FundHistoryPoint[]>([]);
   const [currentPrice, setCurrentPrice]     = useState<number | null>(null);
   const [companyName, setCompanyName]       = useState('');
   const [loading, setLoading]               = useState(false);
@@ -513,7 +596,9 @@ export function ChartContent() {
   const [showMACD,    setShowMACD]    = useState(false);
   const [showVolume,  setShowVolume]  = useState(true);
 
-  // indicator calculations (memoized)
+  const isFund = selected?.kind === 'fund';
+
+  // indicator calculations (memoized) — stock only
   const closes   = useMemo(() => history.map((d) => d.close), [history]);
   const ma25Data  = useMemo(() => showMA25  && closes.length >= 25  ? calcSMA(closes, 25)  : null, [closes, showMA25]);
   const ma75Data  = useMemo(() => showMA75  && closes.length >= 75  ? calcSMA(closes, 75)  : null, [closes, showMA75]);
@@ -531,19 +616,41 @@ export function ChartContent() {
 
   useEffect(() => {
     if (activeUserId === null) return;
-    fetch(`/api/portfolio?userId=${activeUserId}`).then((r) => r.json()).then((data: Holding[]) => {
-      setHoldings(data);
-      setSelectedTicker('');
+    Promise.all([
+      fetch(`/api/portfolio?userId=${activeUserId}`).then((r) => r.json()),
+      fetch(`/api/nisa/tsumitate?userId=${activeUserId}`).then((r) => r.json()),
+      fetch(`/api/nisa/growth?userId=${activeUserId}`).then((r) => r.json()),
+    ]).then(([stocks, tsumitate, growth]) => {
+      const holdingData: Holding[] = Array.isArray(stocks) ? stocks : [];
+      const tsuFunds: FundItem[] = Array.isArray(tsumitate?.holdings)
+        ? tsumitate.holdings.map((h: { fund_code: string; fund_name: string }) => ({ fund_code: h.fund_code, fund_name: h.fund_name }))
+        : [];
+      const growFunds: FundItem[] = Array.isArray(growth?.holdings)
+        ? growth.holdings.map((h: { fund_code: string; fund_name: string }) => ({ fund_code: h.fund_code, fund_name: h.fund_name }))
+        : [];
+      // dedupe funds by fund_code
+      const allFunds = [...tsuFunds, ...growFunds].filter(
+        (f, i, arr) => arr.findIndex((x) => x.fund_code === f.fund_code) === i
+      );
+      setHoldings(holdingData);
+      setFunds(allFunds);
       setHistory([]);
+      setFundHistory([]);
       setCurrentPrice(null);
       setCompanyName('');
       setComboError('');
-      if (data.length > 0) { setSelectedTicker(data[0].ticker); setSelectedMarket(data[0].market); }
+      if (holdingData.length > 0) {
+        setSelected({ kind: 'stock', ticker: holdingData[0].ticker, market: holdingData[0].market });
+      } else if (allFunds.length > 0) {
+        setSelected({ kind: 'fund', fundCode: allFunds[0].fund_code, fundName: allFunds[0].fund_name });
+      }
     });
   }, [activeUserId]);
 
+  // fetch stock history
   useEffect(() => {
-    if (!selectedTicker) return;
+    if (!selected || selected.kind !== 'stock') return;
+    const { ticker, market } = selected;
     if (PERIOD_DAYS[period] > INTERVAL_MAX_DAYS[interval]) {
       setComboError(
         `「${INTERVAL_LABELS.find((l) => l.value === interval)?.label}」は最大 ${INTERVAL_MAX_DAYS[interval]} 日分しか取得できません。`
@@ -553,7 +660,7 @@ export function ChartContent() {
     }
     setComboError('');
     setLoading(true);
-    fetch(`/api/stock?ticker=${selectedTicker}&market=${selectedMarket}&period=${period}&interval=${interval}`)
+    fetch(`/api/stock?ticker=${ticker}&market=${market}&period=${period}&interval=${interval}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.error === 'invalid_combo') {
@@ -568,9 +675,23 @@ export function ChartContent() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [selectedTicker, selectedMarket, period, interval]);
+  }, [selected, period, interval]);
 
-  const currency = selectedMarket === 'JP' ? '¥' : '$';
+  // fetch fund history
+  useEffect(() => {
+    if (!selected || selected.kind !== 'fund') return;
+    const { fundCode } = selected;
+    setLoading(true);
+    fetch(`/api/fund-history/${fundCode}?range=${fundRange}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setFundHistory(data.history ?? []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [selected, fundRange]);
+
+  const currency = (selected?.kind === 'stock' && selected.market === 'US') ? '$' : '¥';
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -602,6 +723,30 @@ export function ChartContent() {
     ] : []),
   ];
 
+  // dropdown value encoding: "stock:AAPL:US" or "fund:04311181"
+  const selectValue = selected
+    ? selected.kind === 'stock'
+      ? `stock:${selected.ticker}:${selected.market}`
+      : `fund:${selected.fundCode}`
+    : '';
+
+  const handleSelectChange = (val: string) => {
+    if (val.startsWith('stock:')) {
+      const [, ticker, market] = val.split(':');
+      setSelected({ kind: 'stock', ticker, market: market as 'US' | 'JP' });
+      setFundHistory([]);
+    } else if (val.startsWith('fund:')) {
+      const fundCode = val.slice(5);
+      const f = funds.find((f) => f.fund_code === fundCode);
+      setSelected({ kind: 'fund', fundCode, fundName: f?.fund_name ?? fundCode });
+      setHistory([]);
+      setCurrentPrice(null);
+      setCompanyName('');
+    }
+    setComboError('');
+    setHoverIdx(null);
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <NavBar active="chart" />
@@ -628,24 +773,34 @@ export function ChartContent() {
           {/* ── Row 1: ticker / chart type ── */}
           <div className="flex items-start justify-between mb-4 flex-wrap gap-4">
             <div className="flex items-center gap-4">
-              <select value={selectedTicker}
-                onChange={(e) => {
-                  const h = holdings.find((h) => h.ticker === e.target.value);
-                  if (h) { setSelectedTicker(h.ticker); setSelectedMarket(h.market); }
-                }}
-                className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500">
-                {holdings.length === 0 && <option value="">銘柄なし</option>}
-                {holdings.map((h) => (
-                  <option key={h.id} value={h.ticker}>
-                    {h.market === 'JP' ? '🇯🇵 ' : '🇺🇸 '}{h.ticker}
-                  </option>
-                ))}
+              <select value={selectValue}
+                onChange={(e) => handleSelectChange(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500 max-w-[260px]">
+                {holdings.length === 0 && funds.length === 0 && <option value="">銘柄なし</option>}
+                {holdings.length > 0 && (
+                  <optgroup label="株式">
+                    {holdings.map((h) => (
+                      <option key={h.id} value={`stock:${h.ticker}:${h.market}`}>
+                        {h.market === 'JP' ? '🇯🇵 ' : '🇺🇸 '}{h.ticker}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {funds.length > 0 && (
+                  <optgroup label="投資信託">
+                    {funds.map((f) => (
+                      <option key={f.fund_code} value={`fund:${f.fund_code}`}>
+                        📈 {f.fund_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <div>
                 {companyName && <p className="text-sm text-gray-400">{companyName}</p>}
-                {currentPrice != null && (
+                {currentPrice != null && !isFund && (
                   <span className="text-2xl font-bold">
-                    {currency}{currentPrice.toFixed(selectedMarket === 'JP' ? 0 : 2)}
+                    {currency}{currentPrice.toFixed(selected?.kind === 'stock' && selected.market === 'JP' ? 0 : 2)}
                   </span>
                 )}
               </div>
@@ -664,69 +819,86 @@ export function ChartContent() {
           </div>
 
           {/* ── Row 2: period / interval ── */}
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <div className="flex gap-1">
-              {(['day', 'week', 'month', 'year'] as Period[]).map((p) => {
-                const tooLong = PERIOD_DAYS[p] > INTERVAL_MAX_DAYS[interval] && chartType === 'candle';
-                return (
-                  <button key={p} onClick={() => handlePeriod(p)}
-                    className={`px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
-                      period === p ? 'bg-gray-600 text-white'
-                        : tooLong ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                    }`}>
-                    {p === 'day' ? '日' : p === 'week' ? '週' : p === 'month' ? '月' : '年'}
-                  </button>
-                );
-              })}
+          {isFund ? (
+            /* 投資信託: 期間ボタンのみ */
+            <div className="flex items-center gap-1 mb-4">
+              {(['1M', '3M', '6M', '1Y', '3Y', '5Y'] as FundRange[]).map((r) => (
+                <button key={r} onClick={() => setFundRange(r)}
+                  className={`px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
+                    fundRange === r ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}>
+                  {r}
+                </button>
+              ))}
             </div>
+          ) : (
+            /* 株式: 従来の期間・足種類 */
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
+              <div className="flex gap-1">
+                {(['day', 'week', 'month', 'year'] as Period[]).map((p) => {
+                  const tooLong = PERIOD_DAYS[p] > INTERVAL_MAX_DAYS[interval] && chartType === 'candle';
+                  return (
+                    <button key={p} onClick={() => handlePeriod(p)}
+                      className={`px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
+                        period === p ? 'bg-gray-600 text-white'
+                          : tooLong ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}>
+                      {p === 'day' ? '日' : p === 'week' ? '週' : p === 'month' ? '月' : '年'}
+                    </button>
+                  );
+                })}
+              </div>
 
-            {chartType === 'candle' && (
-              <>
-                <div className="w-px h-5 bg-gray-700" />
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">足の種類:</span>
-                  <div className="flex gap-1 flex-wrap">
-                    {INTERVAL_LABELS.map(({ value, label }) => {
-                      const disabled = PERIOD_DAYS[period] > INTERVAL_MAX_DAYS[value];
-                      return (
-                        <button key={value}
-                          onClick={() => !disabled && setInterval(value)}
-                          disabled={disabled}
-                          title={disabled ? `最大${INTERVAL_MAX_DAYS[value]}日分のみ対応` : label}
-                          className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                            interval === value ? 'bg-blue-600 text-white'
-                              : disabled ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                              : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                          }`}>
-                          {label}
-                        </button>
-                      );
-                    })}
+              {chartType === 'candle' && (
+                <>
+                  <div className="w-px h-5 bg-gray-700" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">足の種類:</span>
+                    <div className="flex gap-1 flex-wrap">
+                      {INTERVAL_LABELS.map(({ value, label }) => {
+                        const disabled = PERIOD_DAYS[period] > INTERVAL_MAX_DAYS[value];
+                        return (
+                          <button key={value}
+                            onClick={() => !disabled && setInterval(value)}
+                            disabled={disabled}
+                            title={disabled ? `最大${INTERVAL_MAX_DAYS[value]}日分のみ対応` : label}
+                            className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                              interval === value ? 'bg-blue-600 text-white'
+                                : disabled ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                            }`}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* ── Row 3: indicator toggles ── */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 pb-4 border-b border-gray-800 text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-500 mr-1">移動平均線:</span>
-              <ToggleBtn label="MA25"  active={showMA25}  activeColor="text-amber-400"   onClick={() => setShowMA25(!showMA25)} />
-              <ToggleBtn label="MA75"  active={showMA75}  activeColor="text-emerald-400" onClick={() => setShowMA75(!showMA75)} />
-              <ToggleBtn label="MA200" active={showMA200} activeColor="text-red-400"     onClick={() => setShowMA200(!showMA200)} />
+                </>
+              )}
             </div>
-            <div className="w-px h-5 bg-gray-700 hidden sm:block" />
-            <ToggleBtn label="BB (ボリンジャーバンド)" active={showBB}     activeColor="text-blue-300"   onClick={() => setShowBB(!showBB)} />
-            <div className="w-px h-5 bg-gray-700 hidden sm:block" />
-            <ToggleBtn label="RSI"     active={showRSI}    activeColor="text-purple-400" onClick={() => setShowRSI(!showRSI)} />
-            <ToggleBtn label="MACD"    active={showMACD}   activeColor="text-blue-400"   onClick={() => setShowMACD(!showMACD)} />
-            <ToggleBtn label="出来高"   active={showVolume} activeColor="text-blue-400"   onClick={() => setShowVolume(!showVolume)} />
-          </div>
+          )}
+
+          {/* ── Row 3: indicator toggles (株式のみ) ── */}
+          {!isFund && (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 pb-4 border-b border-gray-800 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-500 mr-1">移動平均線:</span>
+                <ToggleBtn label="MA25"  active={showMA25}  activeColor="text-amber-400"   onClick={() => setShowMA25(!showMA25)} />
+                <ToggleBtn label="MA75"  active={showMA75}  activeColor="text-emerald-400" onClick={() => setShowMA75(!showMA75)} />
+                <ToggleBtn label="MA200" active={showMA200} activeColor="text-red-400"     onClick={() => setShowMA200(!showMA200)} />
+              </div>
+              <div className="w-px h-5 bg-gray-700 hidden sm:block" />
+              <ToggleBtn label="BB (ボリンジャーバンド)" active={showBB}     activeColor="text-blue-300"   onClick={() => setShowBB(!showBB)} />
+              <div className="w-px h-5 bg-gray-700 hidden sm:block" />
+              <ToggleBtn label="RSI"     active={showRSI}    activeColor="text-purple-400" onClick={() => setShowRSI(!showRSI)} />
+              <ToggleBtn label="MACD"    active={showMACD}   activeColor="text-blue-400"   onClick={() => setShowMACD(!showMACD)} />
+              <ToggleBtn label="出来高"   active={showVolume} activeColor="text-blue-400"   onClick={() => setShowVolume(!showVolume)} />
+            </div>
+          )}
 
           {/* ── legend ── */}
-          {legendItems.length > 0 && (
+          {!isFund && legendItems.length > 0 && (
             <div className="mb-3">
               <Legend items={legendItems} />
             </div>
@@ -740,11 +912,26 @@ export function ChartContent() {
               <p className="text-yellow-400 text-sm font-semibold">⚠ この期間は取得できません</p>
               <p className="text-gray-400 text-xs">{comboError}</p>
             </div>
+          ) : isFund ? (
+            /* 投資信託チャート */
+            fundHistory.length === 0 ? (
+              <div className="h-80 flex items-center justify-center text-gray-500">データがありません</div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-gray-500">基準価額 (円/万口)</span>
+                  <span className="text-lg font-bold text-blue-400">
+                    ¥{fundHistory[fundHistory.length - 1]?.nav.toLocaleString('ja-JP')}
+                  </span>
+                </div>
+                <FundLineChart data={fundHistory} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} />
+              </div>
+            )
           ) : history.length === 0 ? (
             <div className="h-80 flex items-center justify-center text-gray-500">データがありません</div>
           ) : (
+            /* 株式チャート */
             <div className="flex flex-col gap-1">
-              {/* main chart */}
               <PriceChart
                 data={history}
                 chartType={chartType}
@@ -758,7 +945,6 @@ export function ChartContent() {
                 setHoverIdx={setHoverIdx}
               />
 
-              {/* sub charts */}
               {showVolume && (
                 <div className="mt-1">
                   <VolumeChart data={history} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} />
@@ -785,7 +971,6 @@ export function ChartContent() {
                 </div>
               )}
 
-              {/* MACD legend */}
               {showMACD && macdData && (
                 <div className="flex gap-4 px-1 mt-1">
                   <div className="flex items-center gap-1.5"><div className="w-5 h-0.5 bg-blue-500" /><span className="text-xs text-gray-400">MACD(12,26)</span></div>
