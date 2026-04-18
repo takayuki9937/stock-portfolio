@@ -1,0 +1,1 @@
+export { ChartContent as default } from './_content';

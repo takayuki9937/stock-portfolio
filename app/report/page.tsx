@@ -1,0 +1,1 @@
+export { ReportContent as default } from './_content';
