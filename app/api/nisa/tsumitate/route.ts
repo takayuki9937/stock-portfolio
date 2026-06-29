@@ -183,16 +183,16 @@ async function getHistoricalNavs(
 /* ----------------------------------------------------------------
  * 積立日リストを生成（start_date の日付を基準に毎月）
  * ---------------------------------------------------------------- */
-function getAccumulationDates(startDate: string): string[] {
+function getAccumulationDates(startDate: string, accumulationDay?: number | null): string[] {
   const dates: string[] = [];
-  const start = new Date(startDate);
-  const accumDay = start.getDate();
-  const now = new Date();
+  const start   = new Date(startDate);
+  const accumDay = accumulationDay ?? start.getDate(); // 指定なしは start_date の日を使用
+  const now     = new Date();
   let year = start.getFullYear(), month = start.getMonth();
 
   while (true) {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const day = Math.min(accumDay, daysInMonth);
+    const day     = Math.min(accumDay, daysInMonth);
     const current = new Date(year, month, day);
     if (current > now) break;
     dates.push(current.toISOString().slice(0, 10));
@@ -243,41 +243,44 @@ export async function GET(req: NextRequest) {
     const nav    = await fetchNav(r.fund_code);
     const months = monthsSince(r.start_date);
 
-    let total_units: number;
-    let cost_jpy: number;
+    // 基準日方式のパラメータ（既存データは 0/null でフォールバック）
+    const baselineUnits    = r.baseline_units     ?? 0;
+    const baselineAvgPrice = r.baseline_avg_price ?? 0;
+    const accumDay         = r.accumulation_day   ?? undefined;
 
-    const dates = getAccumulationDates(r.start_date);
+    // 基準日以降の積立日リスト
+    const dates = getAccumulationDates(r.start_date, accumDay);
+
+    let postUnits: number;
+    let postCost:  number;
 
     if (r.accumulation_type === 'units') {
       // ── 口数指定 ──
-      // 合計口数は固定、コストは各月の推定NAVで積算
-      total_units = r.monthly_units * dates.length;
-
+      postUnits = r.monthly_units * dates.length;
       if (nav) {
         const navs = await getHistoricalNavs(r, nav, dates);
-        cost_jpy = navs.reduce((sum, n) => sum + r.monthly_units * n / 10000, 0);
+        postCost = navs.reduce((sum, n) => sum + r.monthly_units * n / 10000, 0);
       } else {
-        cost_jpy = 0;
+        postCost = 0;
       }
     } else {
       // ── 金額指定: ドルコスト平均法 ──
-      // コストは単純合計、口数は各月の推定NAVで積算
-      cost_jpy = r.monthly_amount * dates.length;
-
+      postCost = r.monthly_amount * dates.length;
       if (nav) {
         const navs = await getHistoricalNavs(r, nav, dates);
-        total_units = navs.reduce((sum, n) => {
-          if (n <= 0) return sum;
-          return sum + (r.monthly_amount / n) * 10000;
-        }, 0);
+        postUnits = navs.reduce((sum, n) => n > 0 ? sum + (r.monthly_amount / n) * 10000 : sum, 0);
       } else {
-        total_units = 0;
+        postUnits = 0;
       }
     }
 
+    // 合計口数・投資総額
+    const total_units = baselineUnits + postUnits;
+    const cost_jpy    = (baselineUnits * baselineAvgPrice / 10000) + postCost;
+
     const current_value_jpy = nav != null ? total_units * nav / 10000 : null;
-    const pnl_jpy  = current_value_jpy != null ? current_value_jpy - cost_jpy : null;
-    const pnl_pct  = pnl_jpy != null && cost_jpy > 0 ? (pnl_jpy / cost_jpy) * 100 : null;
+    const pnl_jpy = current_value_jpy != null ? current_value_jpy - cost_jpy : null;
+    const pnl_pct = pnl_jpy != null && cost_jpy > 0 ? (pnl_jpy / cost_jpy) * 100 : null;
 
     return { ...r, nav, months, total_units, cost_jpy, current_value_jpy, pnl_jpy, pnl_pct };
   }));
@@ -294,7 +297,7 @@ export async function POST(req: NextRequest) {
   const {
     userId, fund_code, fund_name, broker,
     accumulation_type, monthly_amount, monthly_units,
-    start_date,
+    start_date, accumulation_day, baseline_units, baseline_avg_price,
   } = body;
 
   if (!userId || !fund_code || !fund_name || !start_date) {
@@ -304,15 +307,18 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from('nisa_tsumitate')
     .insert({
-      user_id:          Number(userId),
+      user_id:            Number(userId),
       fund_code,
       fund_name,
-      broker:           broker ?? 'SBI',
-      accumulation_type: accumulation_type ?? 'amount',
-      monthly_amount:  Number(monthly_amount ?? 0),
-      monthly_units:   Number(monthly_units ?? 0),
-      purchase_price:  0,
+      broker:             broker ?? 'SBI',
+      accumulation_type:  accumulation_type ?? 'amount',
+      monthly_amount:     Number(monthly_amount ?? 0),
+      monthly_units:      Number(monthly_units  ?? 0),
+      purchase_price:     0,
       start_date,
+      accumulation_day:   accumulation_day ? Number(accumulation_day) : null,
+      baseline_units:     Number(baseline_units     ?? 0),
+      baseline_avg_price: Number(baseline_avg_price ?? 0),
     })
     .select('id')
     .single();

@@ -14,6 +14,7 @@ interface TsumiItem {
   id: number; fund_code: string; fund_name: string;
   broker: string; accumulation_type: 'amount' | 'units';
   monthly_amount: number; monthly_units: number; start_date: string;
+  baseline_units: number; baseline_avg_price: number; accumulation_day: number | null;
   nav: number | null; months: number; total_units: number;
   cost_jpy: number; current_value_jpy: number | null; pnl_jpy: number | null; pnl_pct: number | null;
 }
@@ -339,6 +340,7 @@ function TsumitateSgment({ userId }: { userId: number }) {
   const [form, setForm] = useState({
     fund_code: '', fund_name: '', broker: 'SBI',
     monthly_amount: '', monthly_units: '', start_date: '',
+    baseline_units: '0', baseline_avg_price: '0', accumulation_day: '',
   });
 
   const load = useCallback(async () => {
@@ -361,14 +363,17 @@ function TsumitateSgment({ userId }: { userId: number }) {
       body: JSON.stringify({
         userId, fund_code: form.fund_code, fund_name: form.fund_name,
         broker: form.broker, accumulation_type: accType,
-        monthly_amount: accType === 'amount' ? Number(form.monthly_amount) : 0,
-        monthly_units:  accType === 'units'  ? Number(form.monthly_units)  : 0,
-        start_date: form.start_date,
+        monthly_amount:     accType === 'amount' ? Number(form.monthly_amount) : 0,
+        monthly_units:      accType === 'units'  ? Number(form.monthly_units)  : 0,
+        start_date:         form.start_date,
+        accumulation_day:   form.accumulation_day ? Number(form.accumulation_day) : null,
+        baseline_units:     Number(form.baseline_units     || 0),
+        baseline_avg_price: Number(form.baseline_avg_price || 0),
       }),
     });
     setSubmitting(false);
     if (!res.ok) { const d = await res.json(); setError(d.error ?? 'エラー'); return; }
-    setForm({ fund_code: '', fund_name: '', broker: 'SBI', monthly_amount: '', monthly_units: '', start_date: '' });
+    setForm({ fund_code: '', fund_name: '', broker: 'SBI', monthly_amount: '', monthly_units: '', start_date: '', baseline_units: '0', baseline_avg_price: '0', accumulation_day: '' });
     load();
   }
 
@@ -388,7 +393,7 @@ function TsumitateSgment({ userId }: { userId: number }) {
       <ProgressBar used={yearlyUsed} limit={1200000} label="つみたて (上限120万円)" />
 
       {/* 追加フォーム */}
-      <form onSubmit={handleAdd} className="mt-4 space-y-2">
+      <form onSubmit={handleAdd} className="mt-4 space-y-3">
         {/* 証券会社フィルター兼選択 */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-500">証券会社:</span>
@@ -396,22 +401,47 @@ function TsumitateSgment({ userId }: { userId: number }) {
             <button key={b} type="button"
               onClick={() => { setBrokerFilter(b); if (b !== 'すべて') setForm((f) => ({ ...f, broker: b })); }}
               className={`px-3 py-1 rounded text-xs font-semibold transition-colors border ${
-                brokerFilter === b
-                  ? 'bg-blue-600 border-blue-500 text-white'
-                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
-              }`}>
-              {b}
-            </button>
+                brokerFilter === b ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
+              }`}>{b}</button>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {/* ファンド検索（col-span-2） */}
-          <FundSearch
-            onSelect={(code, name) => setForm((f) => ({ ...f, fund_code: code, fund_name: name }))} />
+        {/* ファンド検索 */}
+        <FundSearch onSelect={(code, name) => setForm((f) => ({ ...f, fund_code: code, fund_name: name }))} />
 
-          {/* 積立方法 */}
-          <div className="flex items-center gap-3 sm:col-span-2">
+        {/* ① 基準情報 */}
+        <div className="border border-gray-700 rounded-lg p-3 space-y-2">
+          <p className="text-xs text-gray-400 font-semibold">① 基準情報</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">基準日</label>
+              <input type="date" value={form.start_date}
+                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                required />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">基準日時点の保有口数</label>
+              <input type="number" placeholder="0" value={form.baseline_units}
+                onChange={(e) => setForm({ ...form, baseline_units: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                min="0" step="1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">平均取得単価 (円/万口)</label>
+              <input type="number" placeholder="0" value={form.baseline_avg_price}
+                onChange={(e) => setForm({ ...form, baseline_avg_price: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                min="0" step="any" />
+            </div>
+          </div>
+          <p className="text-xs text-gray-600">SBI証券のポートフォリオ画面の値をそのまま入力。保有口数を 0 にすると基準日以降を全期間計算します。</p>
+        </div>
+
+        {/* ② 積立設定 */}
+        <div className="border border-gray-700 rounded-lg p-3 space-y-2">
+          <p className="text-xs text-gray-400 font-semibold">② 基準日以降の積立設定</p>
+          <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 shrink-0">積立方法:</span>
             {(['amount', 'units'] as const).map((t) => (
               <label key={t} className="flex items-center gap-1.5 cursor-pointer">
@@ -421,23 +451,24 @@ function TsumitateSgment({ userId }: { userId: number }) {
               </label>
             ))}
           </div>
-
-          {accType === 'amount' ? (
-            <input type="number" placeholder="毎月の積立金額 (¥)" value={form.monthly_amount}
-              onChange={(e) => setForm({ ...form, monthly_amount: e.target.value })}
+          <div className="grid grid-cols-2 gap-2">
+            {accType === 'amount' ? (
+              <input type="number" placeholder="毎月の積立金額 (¥)" value={form.monthly_amount}
+                onChange={(e) => setForm({ ...form, monthly_amount: e.target.value })}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                min="1" required />
+            ) : (
+              <input type="number" placeholder="毎月の積立口数" value={form.monthly_units}
+                onChange={(e) => setForm({ ...form, monthly_units: e.target.value })}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                min="1" step="1" required />
+            )}
+            <input type="number" placeholder="積立日（例: 7）省略時は基準日の日付"
+              value={form.accumulation_day}
+              onChange={(e) => setForm({ ...form, accumulation_day: e.target.value })}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-              min="1" required />
-          ) : (
-            <input type="number" placeholder="毎月の積立口数" value={form.monthly_units}
-              onChange={(e) => setForm({ ...form, monthly_units: e.target.value })}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-              min="1" step="1" required />
-          )}
-
-          <input type="date" value={form.start_date}
-            onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-            required />
+              min="1" max="31" step="1" />
+          </div>
         </div>
 
         {error && <p className="text-red-400 text-xs">{error}</p>}
@@ -466,6 +497,7 @@ function TsumitateSgment({ userId }: { userId: number }) {
               <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-400">
                 <span>{it.accumulation_type === 'amount' ? `¥${it.monthly_amount.toLocaleString()}/月` : `${it.monthly_units.toLocaleString()}口/月`}</span>
                 <span>{it.months}ヶ月積立</span>
+                {it.baseline_units > 0 && <span>基準口数 {Math.round(it.baseline_units).toLocaleString()}口</span>}
                 <span>基準価額 {it.nav != null ? `¥${it.nav.toLocaleString()}` : '取得中'}</span>
                 <span>投資総額 {jpy(it.cost_jpy)}</span>
               </div>

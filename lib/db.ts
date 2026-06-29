@@ -25,6 +25,10 @@ export interface NisaTsumitate {
   monthly_units: number;
   purchase_price: number;
   start_date: string;
+  // 基準日方式
+  baseline_units:     number;       // 基準日時点の保有口数（0 = 基準なし）
+  baseline_avg_price: number;       // 基準日時点の平均取得単価（円/万口）
+  accumulation_day:   number | null; // 毎月の積立日（null = start_date の日付を使用）
   created_at: string;
 }
 
