@@ -13,7 +13,7 @@ interface Holding {
 interface TsumiItem {
   id: number; fund_code: string; fund_name: string;
   broker: string; accumulation_type: 'amount' | 'units';
-  monthly_amount: number; monthly_units: number; purchase_price: number; start_date: string;
+  monthly_amount: number; monthly_units: number; start_date: string;
   nav: number | null; months: number; total_units: number;
   cost_jpy: number; current_value_jpy: number | null; pnl_jpy: number | null; pnl_pct: number | null;
 }
@@ -338,7 +338,7 @@ function TsumitateSgment({ userId }: { userId: number }) {
   const [accType, setAccType]       = useState<'amount' | 'units'>('amount');
   const [form, setForm] = useState({
     fund_code: '', fund_name: '', broker: 'SBI',
-    monthly_amount: '', monthly_units: '', purchase_price: '', start_date: '',
+    monthly_amount: '', monthly_units: '', start_date: '',
   });
 
   const load = useCallback(async () => {
@@ -363,13 +363,12 @@ function TsumitateSgment({ userId }: { userId: number }) {
         broker: form.broker, accumulation_type: accType,
         monthly_amount: accType === 'amount' ? Number(form.monthly_amount) : 0,
         monthly_units:  accType === 'units'  ? Number(form.monthly_units)  : 0,
-        purchase_price: Number(form.purchase_price),
         start_date: form.start_date,
       }),
     });
     setSubmitting(false);
     if (!res.ok) { const d = await res.json(); setError(d.error ?? 'エラー'); return; }
-    setForm({ fund_code: '', fund_name: '', broker: 'SBI', monthly_amount: '', monthly_units: '', purchase_price: '', start_date: '' });
+    setForm({ fund_code: '', fund_name: '', broker: 'SBI', monthly_amount: '', monthly_units: '', start_date: '' });
     load();
   }
 
@@ -434,11 +433,6 @@ function TsumitateSgment({ userId }: { userId: number }) {
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
               min="1" step="1" required />
           )}
-
-          <input type="number" placeholder="購入時の基準価額 (¥/10,000口)" value={form.purchase_price}
-            onChange={(e) => setForm({ ...form, purchase_price: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-            min="1" step="any" required />
 
           <input type="date" value={form.start_date}
             onChange={(e) => setForm({ ...form, start_date: e.target.value })}

@@ -131,25 +131,53 @@ async function fetchFundHistory(fundCode: string): Promise<{ date: string; nav: 
 }
 
 /* ----------------------------------------------------------------
- * みんかぶ履歴から DCA 計算（フォールバック）
+ * 積立日ごとの推定 NAV を返す共通ヘルパー
+ * インデックス対応ファンド → アンカー方式
+ * 非対応ファンド         → みんかぶ履歴
  * ---------------------------------------------------------------- */
-function calcUnitsFromMinkabu(
+async function getHistoricalNavs(
+  r: NisaTsumitate,
+  navCurrent: number,
   dates: string[],
-  history: { date: string; nav: number }[],
-  monthlyAmount: number,
-  purchasePrice: number,
-): number {
-  let total = 0;
-  for (const date of dates) {
+): Promise<number[]> {
+  const indexInfo = FUND_INDEX_MAP[r.fund_code];
+
+  if (indexInfo) {
+    const startDate = new Date(r.start_date);
+    const [indexHistory, fxHistory] = await Promise.all([
+      fetchYFHistory(indexInfo.ticker, startDate),
+      indexInfo.currency === 'USD'
+        ? fetchYFHistory('USDJPY=X', startDate)
+        : Promise.resolve([] as { date: string; close: number }[]),
+    ]);
+
+    if (indexHistory.length > 0) {
+      const indexNow = indexHistory[indexHistory.length - 1].close;
+      const fxNow    = indexInfo.currency === 'USD'
+        ? (fxHistory[fxHistory.length - 1]?.close ?? 1)
+        : 1;
+
+      return dates.map((date) => {
+        const indexOnDate = findOnOrBefore(indexHistory, date);
+        if (!indexOnDate) return navCurrent; // 最終手段: 現在値で代替
+        const fxOnDate = indexInfo.currency === 'USD'
+          ? (findOnOrBefore(fxHistory, date) ?? fxNow)
+          : 1;
+        return navCurrent * (indexOnDate / indexNow) * (fxOnDate / fxNow);
+      });
+    }
+  }
+
+  // みんかぶ履歴フォールバック
+  const history = await fetchFundHistory(r.fund_code);
+  return dates.map((date) => {
     let best: number | null = null;
     for (const e of history) {
       if (e.date <= date) best = e.nav;
       else break;
     }
-    const navOnDate = best ?? (history.length > 0 ? history[0].nav : purchasePrice);
-    if (navOnDate > 0) total += (monthlyAmount / navOnDate) * 10000;
-  }
-  return total;
+    return best ?? (history.length > 0 ? history[0].nav : navCurrent);
+  });
 }
 
 /* ----------------------------------------------------------------
@@ -218,55 +246,32 @@ export async function GET(req: NextRequest) {
     let total_units: number;
     let cost_jpy: number;
 
+    const dates = getAccumulationDates(r.start_date);
+
     if (r.accumulation_type === 'units') {
-      // ── 口数指定: シンプル計算 ──
-      total_units = r.monthly_units * months;
-      cost_jpy    = total_units * r.purchase_price / 10000;
+      // ── 口数指定 ──
+      // 合計口数は固定、コストは各月の推定NAVで積算
+      total_units = r.monthly_units * dates.length;
 
-    } else {
-      const dates    = getAccumulationDates(r.start_date);
-      cost_jpy       = r.monthly_amount * dates.length;
-      const indexInfo = FUND_INDEX_MAP[r.fund_code];
-
-      if (indexInfo && nav) {
-        // ── インデックスアンカー方式（高精度）──
-        // 現在の正確なNAVを起点に、インデックスの変動率で過去のNAVを逆算
-        const startDate = new Date(r.start_date);
-        const [indexHistory, fxHistory] = await Promise.all([
-          fetchYFHistory(indexInfo.ticker, startDate),
-          indexInfo.currency === 'USD'
-            ? fetchYFHistory('USDJPY=X', startDate)
-            : Promise.resolve([] as { date: string; close: number }[]),
-        ]);
-
-        if (indexHistory.length > 0) {
-          const indexNow = indexHistory[indexHistory.length - 1].close;
-          const fxNow    = indexInfo.currency === 'USD'
-            ? (fxHistory[fxHistory.length - 1]?.close ?? 1)
-            : 1;
-
-          total_units = 0;
-          for (const date of dates) {
-            const indexOnDate = findOnOrBefore(indexHistory, date);
-            if (!indexOnDate) continue;
-
-            const fxOnDate = indexInfo.currency === 'USD'
-              ? (findOnOrBefore(fxHistory, date) ?? fxNow)
-              : 1;
-
-            // 過去の推定NAV = 現在のNAV × (当時の指数/現在の指数) × (当時の為替/現在の為替)
-            const navOnDate = nav * (indexOnDate / indexNow) * (fxOnDate / fxNow);
-            if (navOnDate > 0) total_units += (r.monthly_amount / navOnDate) * 10000;
-          }
-        } else {
-          // Yahoo Finance 取得失敗 → みんかぶ履歴で代替
-          const history = await fetchFundHistory(r.fund_code);
-          total_units = calcUnitsFromMinkabu(dates, history, r.monthly_amount, r.purchase_price);
-        }
+      if (nav) {
+        const navs = await getHistoricalNavs(r, nav, dates);
+        cost_jpy = navs.reduce((sum, n) => sum + r.monthly_units * n / 10000, 0);
       } else {
-        // ── みんかぶ履歴方式（インデックス未対応ファンドのフォールバック）──
-        const history = await fetchFundHistory(r.fund_code);
-        total_units = calcUnitsFromMinkabu(dates, history, r.monthly_amount, r.purchase_price);
+        cost_jpy = 0;
+      }
+    } else {
+      // ── 金額指定: ドルコスト平均法 ──
+      // コストは単純合計、口数は各月の推定NAVで積算
+      cost_jpy = r.monthly_amount * dates.length;
+
+      if (nav) {
+        const navs = await getHistoricalNavs(r, nav, dates);
+        total_units = navs.reduce((sum, n) => {
+          if (n <= 0) return sum;
+          return sum + (r.monthly_amount / n) * 10000;
+        }, 0);
+      } else {
+        total_units = 0;
       }
     }
 
@@ -289,7 +294,7 @@ export async function POST(req: NextRequest) {
   const {
     userId, fund_code, fund_name, broker,
     accumulation_type, monthly_amount, monthly_units,
-    purchase_price, start_date,
+    start_date,
   } = body;
 
   if (!userId || !fund_code || !fund_name || !start_date) {
@@ -304,9 +309,9 @@ export async function POST(req: NextRequest) {
       fund_name,
       broker:           broker ?? 'SBI',
       accumulation_type: accumulation_type ?? 'amount',
-      monthly_amount:   Number(monthly_amount ?? 0),
-      monthly_units:    Number(monthly_units ?? 0),
-      purchase_price:   Number(purchase_price ?? 0),
+      monthly_amount:  Number(monthly_amount ?? 0),
+      monthly_units:   Number(monthly_units ?? 0),
+      purchase_price:  0,
       start_date,
     })
     .select('id')
