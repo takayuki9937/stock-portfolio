@@ -20,26 +20,22 @@ export async function GET(req: NextRequest) {
     const html = await res.text();
     const results: FundResult[] = [];
 
-    // 各ファンド行は <tr x-bind:class="checkedList.includes('CODE')..."> で始まる
-    const rows = html.split(/<tr\s+x-bind:class=/);
+    // 検索結果行は <tr class="odd:bg-slate-50 even:bg-white cursor-pointer"> で始まる
+    const rows = html.split(/class="odd:bg-slate-50 even:bg-white cursor-pointer"/);
 
     for (const row of rows.slice(1)) {
-      // ファンドコード: href="/fund/{code}"
-      const codeMatch = row.match(/href="\/fund\/([A-Za-z0-9]+)"/);
+      // ファンドコード: checkbox の value="CODE"
+      const codeMatch = row.match(/value="([A-Za-z0-9]+)"/);
       if (!codeMatch) continue;
       const fundCode = codeMatch[1];
 
-      // ファンド名: text-MK-link な <a> タグのテキスト
-      const nameMatch = row.match(/text-MK-link[^>]*>\s*([\s\S]+?)\s*<\/a>/);
+      // ファンド名: x-bind:class を持つ <td> のテキスト
+      const nameMatch = row.match(/x-bind:class="[^"]*"[^>]*>\s*([\s\S]+?)\s*<\/td>/);
       if (!nameMatch) continue;
       const name = nameMatch[1].replace(/<[^>]+>/g, '').trim();
       if (!name) continue;
 
-      // 基準価額: "基準価額 MM/DD" ラベルの直後の <p> テキスト
-      const navMatch = row.match(/基準価額[^<]*<\/p>\s*<p>([\d,]+)円/);
-      const nav = navMatch ? parseFloat(navMatch[1].replace(/,/g, '')) : null;
-
-      results.push({ fundCode, name, nav });
+      results.push({ fundCode, name, nav: null });
     }
 
     return NextResponse.json({ results: results.slice(0, 20) });
