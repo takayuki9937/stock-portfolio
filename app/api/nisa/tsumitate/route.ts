@@ -243,46 +243,50 @@ export async function GET(req: NextRequest) {
     const nav    = await fetchNav(r.fund_code);
     const months = monthsSince(r.start_date);
 
-    // 基準日方式のパラメータ（既存データは 0/null でフォールバック）
-    const baselineUnits    = r.baseline_units     ?? 0;
-    const baselineAvgPrice = r.baseline_avg_price ?? 0;
-    const accumDay         = r.accumulation_day   ?? undefined;
+    const baselineAmount = r.baseline_amount ?? 0;
+    const accumDay       = r.accumulation_day ?? undefined;
 
-    // 基準日以降の積立日リスト
-    const dates = getAccumulationDates(r.start_date, accumDay);
+    // 基準日以降の積立日リスト（基準日がある場合は基準日当日を除外）
+    const allDates  = getAccumulationDates(r.start_date, accumDay);
+    const postDates = baselineAmount > 0 ? allDates.filter((d) => d > r.start_date) : allDates;
 
     let postUnits: number;
     let postCost:  number;
 
     if (r.accumulation_type === 'units') {
-      // ── 口数指定 ──
-      postUnits = r.monthly_units * dates.length;
+      postUnits = r.monthly_units * postDates.length;
       if (nav) {
-        const navs = await getHistoricalNavs(r, nav, dates);
+        const navs = await getHistoricalNavs(r, nav, postDates);
         postCost = navs.reduce((sum, n) => sum + r.monthly_units * n / 10000, 0);
       } else {
         postCost = 0;
       }
     } else {
-      // ── 金額指定: ドルコスト平均法 ──
-      postCost = r.monthly_amount * dates.length;
+      postCost = r.monthly_amount * postDates.length;
       if (nav) {
-        const navs = await getHistoricalNavs(r, nav, dates);
+        const navs = await getHistoricalNavs(r, nav, postDates);
         postUnits = navs.reduce((sum, n) => n > 0 ? sum + (r.monthly_amount / n) * 10000 : sum, 0);
       } else {
         postUnits = 0;
       }
     }
 
-    // 合計口数・投資総額
-    const total_units = baselineUnits + postUnits;
-    const cost_jpy    = (baselineUnits * baselineAvgPrice / 10000) + postCost;
+    // 基準日分の評価額（インデックスから基準日のNAVを推定して上昇率を計算）
+    let baselineValue = 0;
+    if (baselineAmount > 0 && nav != null) {
+      const baselineNav = r.baseline_nav && r.baseline_nav > 0
+        ? r.baseline_nav
+        : (await getHistoricalNavs(r, nav, [r.start_date]))[0];
+      baselineValue = baselineNav > 0 ? baselineAmount * (nav / baselineNav) : baselineAmount;
+    }
 
-    const current_value_jpy = nav != null ? total_units * nav / 10000 : null;
-    const pnl_jpy = current_value_jpy != null ? current_value_jpy - cost_jpy : null;
-    const pnl_pct = pnl_jpy != null && cost_jpy > 0 ? (pnl_jpy / cost_jpy) * 100 : null;
+    const postValue         = nav != null ? postUnits * nav / 10000 : 0;
+    const cost_jpy          = baselineAmount + postCost;
+    const current_value_jpy = nav != null ? baselineValue + postValue : null;
+    const pnl_jpy           = current_value_jpy != null ? current_value_jpy - cost_jpy : null;
+    const pnl_pct           = pnl_jpy != null && cost_jpy > 0 ? (pnl_jpy / cost_jpy) * 100 : null;
 
-    return { ...r, nav, months, total_units, cost_jpy, current_value_jpy, pnl_jpy, pnl_pct };
+    return { ...r, nav, months, cost_jpy, current_value_jpy, pnl_jpy, pnl_pct };
   }));
 
   const yearly_used = calcYearlyUsed(rows as NisaTsumitate[]);
@@ -297,7 +301,7 @@ export async function POST(req: NextRequest) {
   const {
     userId, fund_code, fund_name, broker,
     accumulation_type, monthly_amount, monthly_units,
-    start_date, accumulation_day, baseline_units, baseline_avg_price,
+    start_date, accumulation_day, baseline_amount, baseline_nav,
   } = body;
 
   if (!userId || !fund_code || !fund_name || !start_date) {
@@ -307,18 +311,18 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from('nisa_tsumitate')
     .insert({
-      user_id:            Number(userId),
+      user_id:          Number(userId),
       fund_code,
       fund_name,
-      broker:             broker ?? 'SBI',
-      accumulation_type:  accumulation_type ?? 'amount',
-      monthly_amount:     Number(monthly_amount ?? 0),
-      monthly_units:      Number(monthly_units  ?? 0),
-      purchase_price:     0,
+      broker:           broker ?? 'SBI',
+      accumulation_type: accumulation_type ?? 'amount',
+      monthly_amount:   Number(monthly_amount ?? 0),
+      monthly_units:    Number(monthly_units  ?? 0),
+      purchase_price:   0,
       start_date,
-      accumulation_day:   accumulation_day ? Number(accumulation_day) : null,
-      baseline_units:     Number(baseline_units     ?? 0),
-      baseline_avg_price: Number(baseline_avg_price ?? 0),
+      accumulation_day: accumulation_day ? Number(accumulation_day) : null,
+      baseline_amount:  Number(baseline_amount ?? 0),
+      baseline_nav:     Number(baseline_nav    ?? 0),
     })
     .select('id')
     .single();

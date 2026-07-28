@@ -14,13 +14,13 @@ interface TsumiItem {
   id: number; fund_code: string; fund_name: string;
   broker: string; accumulation_type: 'amount' | 'units';
   monthly_amount: number; monthly_units: number; start_date: string;
-  baseline_units: number; baseline_avg_price: number; accumulation_day: number | null;
-  nav: number | null; months: number; total_units: number;
+  baseline_amount: number; baseline_nav: number; accumulation_day: number | null;
+  nav: number | null; months: number;
   cost_jpy: number; current_value_jpy: number | null; pnl_jpy: number | null; pnl_pct: number | null;
 }
 interface GrowthItem {
   id: number; type: 'fund' | 'stock'; market: 'JP' | 'US'; code: string; fund_name: string;
-  units_or_shares: number; purchase_price: number; purchase_date: string;
+  purchase_amount: number; purchase_nav: number; purchase_date: string;
   current_price: number | null; current_value_jpy: number | null; cost_jpy: number; pnl_jpy: number | null; pnl_pct: number | null;
 }
 
@@ -336,11 +336,10 @@ function TsumitateSgment({ userId }: { userId: number }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
   const [brokerFilter, setBrokerFilter] = useState('すべて');
-  const [accType, setAccType]       = useState<'amount' | 'units'>('amount');
   const [form, setForm] = useState({
     fund_code: '', fund_name: '', broker: 'SBI',
-    monthly_amount: '', monthly_units: '', start_date: '',
-    baseline_units: '0', baseline_avg_price: '0', accumulation_day: '',
+    monthly_amount: '', start_date: '',
+    baseline_amount: '0', accumulation_day: '',
   });
 
   const load = useCallback(async () => {
@@ -362,18 +361,18 @@ function TsumitateSgment({ userId }: { userId: number }) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId, fund_code: form.fund_code, fund_name: form.fund_name,
-        broker: form.broker, accumulation_type: accType,
-        monthly_amount:     accType === 'amount' ? Number(form.monthly_amount) : 0,
-        monthly_units:      accType === 'units'  ? Number(form.monthly_units)  : 0,
-        start_date:         form.start_date,
-        accumulation_day:   form.accumulation_day ? Number(form.accumulation_day) : null,
-        baseline_units:     Number(form.baseline_units     || 0),
-        baseline_avg_price: Number(form.baseline_avg_price || 0),
+        broker: form.broker, accumulation_type: 'amount',
+        monthly_amount:   Number(form.monthly_amount),
+        monthly_units:    0,
+        start_date:       form.start_date,
+        accumulation_day: form.accumulation_day ? Number(form.accumulation_day) : null,
+        baseline_amount:  Number(form.baseline_amount || 0),
+        baseline_nav:     0,
       }),
     });
     setSubmitting(false);
     if (!res.ok) { const d = await res.json(); setError(d.error ?? 'エラー'); return; }
-    setForm({ fund_code: '', fund_name: '', broker: 'SBI', monthly_amount: '', monthly_units: '', start_date: '', baseline_units: '0', baseline_avg_price: '0', accumulation_day: '' });
+    setForm({ fund_code: '', fund_name: '', broker: 'SBI', monthly_amount: '', start_date: '', baseline_amount: '0', accumulation_day: '' });
     load();
   }
 
@@ -412,7 +411,7 @@ function TsumitateSgment({ userId }: { userId: number }) {
         {/* ① 基準情報 */}
         <div className="border border-gray-700 rounded-lg p-3 space-y-2">
           <p className="text-xs text-gray-400 font-semibold">① 基準情報</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-gray-500 block mb-1">基準日</label>
               <input type="date" value={form.start_date}
@@ -421,48 +420,24 @@ function TsumitateSgment({ userId }: { userId: number }) {
                 required />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">基準日時点の保有口数</label>
-              <input type="number" placeholder="0" value={form.baseline_units}
-                onChange={(e) => setForm({ ...form, baseline_units: e.target.value })}
+              <label className="text-xs text-gray-500 block mb-1">基準日時点の投資総額（円）</label>
+              <input type="number" placeholder="0" value={form.baseline_amount}
+                onChange={(e) => setForm({ ...form, baseline_amount: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
                 min="0" step="1" />
             </div>
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">平均取得単価 (円/万口)</label>
-              <input type="number" placeholder="0" value={form.baseline_avg_price}
-                onChange={(e) => setForm({ ...form, baseline_avg_price: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                min="0" step="any" />
-            </div>
           </div>
-          <p className="text-xs text-gray-600">SBI証券のポートフォリオ画面の値をそのまま入力。保有口数を 0 にすると基準日以降を全期間計算します。</p>
+          <p className="text-xs text-gray-600">SBI証券の「取得金額合計」をそのまま入力。0にすると基準日からの全期間をDCA計算します。</p>
         </div>
 
         {/* ② 積立設定 */}
         <div className="border border-gray-700 rounded-lg p-3 space-y-2">
           <p className="text-xs text-gray-400 font-semibold">② 基準日以降の積立設定</p>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 shrink-0">積立方法:</span>
-            {(['amount', 'units'] as const).map((t) => (
-              <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" name="accType" value={t} checked={accType === t}
-                  onChange={() => setAccType(t)} className="accent-blue-500" />
-                <span className="text-xs text-gray-300">{t === 'amount' ? '金額指定' : '口数指定'}</span>
-              </label>
-            ))}
-          </div>
           <div className="grid grid-cols-2 gap-2">
-            {accType === 'amount' ? (
-              <input type="number" placeholder="毎月の積立金額 (¥)" value={form.monthly_amount}
-                onChange={(e) => setForm({ ...form, monthly_amount: e.target.value })}
-                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                min="1" required />
-            ) : (
-              <input type="number" placeholder="毎月の積立口数" value={form.monthly_units}
-                onChange={(e) => setForm({ ...form, monthly_units: e.target.value })}
-                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                min="1" step="1" required />
-            )}
+            <input type="number" placeholder="毎月の積立金額 (¥)" value={form.monthly_amount}
+              onChange={(e) => setForm({ ...form, monthly_amount: e.target.value })}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+              min="1" required />
             <input type="number" placeholder="積立日（例: 7）省略時は基準日の日付"
               value={form.accumulation_day}
               onChange={(e) => setForm({ ...form, accumulation_day: e.target.value })}
@@ -495,19 +470,28 @@ function TsumitateSgment({ userId }: { userId: number }) {
                   className="text-red-400 hover:text-red-300 text-xs shrink-0 min-w-[44px] text-right transition-colors">削除</button>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-400">
-                <span>{it.accumulation_type === 'amount' ? `¥${it.monthly_amount.toLocaleString()}/月` : `${it.monthly_units.toLocaleString()}口/月`}</span>
+                <span>¥{it.monthly_amount.toLocaleString()}/月</span>
                 <span>{it.months}ヶ月積立</span>
-                {it.baseline_units > 0 && <span>基準口数 {Math.round(it.baseline_units).toLocaleString()}口</span>}
+                {it.baseline_amount > 0 && <span>基準額 {jpy(it.baseline_amount)}</span>}
                 <span>基準価額 {it.nav != null ? `¥${it.nav.toLocaleString()}` : '取得中'}</span>
-                <span>投資総額 {jpy(it.cost_jpy)}</span>
               </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-sm font-bold">{it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}</span>
+              <div className="mt-2 space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">投資総額</span>
+                  <span className="text-sm font-semibold">{jpy(it.cost_jpy)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">現在評価額</span>
+                  <span className="text-sm font-bold">{it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}</span>
+                </div>
                 {it.pnl_jpy != null && (
-                  <span className={`text-xs font-semibold ${pnlColor(it.pnl_jpy)}`}>
-                    {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
-                    {it.pnl_pct != null && ` (${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%)`}
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">損益</span>
+                    <span className={`text-sm font-semibold ${pnlColor(it.pnl_jpy)}`}>
+                      {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
+                      {it.pnl_pct != null && ` (${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%)`}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
@@ -529,7 +513,7 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
   const [assetType, setAssetType]   = useState<'fund' | 'stock'>('fund');
   const [form, setForm] = useState({
     code: '', fund_name: '', market: 'JP' as 'JP' | 'US',
-    units_or_shares: '', purchase_price: '', purchase_date: '',
+    purchase_amount: '', purchase_nav: '', purchase_date: '',
   });
 
   const load = useCallback(async () => {
@@ -551,12 +535,12 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId, type: assetType, market: form.market, code: form.code, fund_name: form.fund_name,
-        units_or_shares: Number(form.units_or_shares), purchase_price: Number(form.purchase_price), purchase_date: form.purchase_date,
+        purchase_amount: Number(form.purchase_amount), purchase_nav: Number(form.purchase_nav), purchase_date: form.purchase_date,
       }),
     });
     setSubmitting(false);
     if (!res.ok) { const d = await res.json(); setError(d.error ?? 'エラー'); return; }
-    setForm({ code: '', fund_name: '', market: 'JP', units_or_shares: '', purchase_price: '', purchase_date: '' });
+    setForm({ code: '', fund_name: '', market: 'JP', purchase_amount: '', purchase_nav: '', purchase_date: '' });
     load();
   }
 
@@ -605,14 +589,14 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
           )}
 
           <input type="number"
-            placeholder={assetType === 'fund' ? '口数' : '株数'}
-            value={form.units_or_shares}
-            onChange={(e) => setForm({ ...form, units_or_shares: e.target.value })}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" min="0.001" step="any" required />
+            placeholder={assetType === 'fund' ? '購入金額（¥）' : `購入金額（${form.market === 'JP' ? '¥' : '$'}）`}
+            value={form.purchase_amount}
+            onChange={(e) => setForm({ ...form, purchase_amount: e.target.value })}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" min="1" step="any" required />
           <input type="number"
-            placeholder={assetType === 'fund' ? '購入時基準価額 (¥/10,000口)' : `購入価格 (${form.market === 'JP' ? '¥' : '$'})`}
-            value={form.purchase_price}
-            onChange={(e) => setForm({ ...form, purchase_price: e.target.value })}
+            placeholder={assetType === 'fund' ? '購入時基準価額（¥/万口）' : `購入時株価（${form.market === 'JP' ? '¥' : '$'}）`}
+            value={form.purchase_nav}
+            onChange={(e) => setForm({ ...form, purchase_nav: e.target.value })}
             className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" min="0.01" step="any" required />
           <input type="date" value={form.purchase_date}
             onChange={(e) => setForm({ ...form, purchase_date: e.target.value })}
@@ -633,10 +617,7 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
         <div className="space-y-2 mt-4">
           {items.map((it) => {
             const cur = it.market === 'US' ? '$' : '¥';
-            const priceLabel = it.type === 'fund' ? `¥${it.purchase_price.toLocaleString()}/万口` : `${cur}${it.purchase_price.toLocaleString()}`;
-            const curPriceLabel = it.current_price != null
-              ? (it.type === 'fund' ? `¥${it.current_price.toLocaleString()}/万口` : `${cur}${it.current_price.toFixed(it.market === 'JP' ? 0 : 2)}`)
-              : '-';
+            const amountLabel = `${cur}${it.purchase_amount.toLocaleString()}`;
             return (
               <div key={it.id} className="bg-gray-800/50 rounded-lg px-4 py-3">
                 <div className="flex items-start justify-between gap-2">
@@ -648,18 +629,23 @@ function GrowthSegment({ userId, usdJpy }: { userId: number; usdJpy: number | nu
                   </div>
                   <button onClick={() => handleDelete(it.id)} className="text-red-400 hover:text-red-300 text-xs shrink-0 min-w-[44px] text-right transition-colors">削除</button>
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-400">
-                  <span>{it.units_or_shares.toLocaleString()}{it.type === 'fund' ? '口' : '株'}</span>
-                  <span>取得 {priceLabel}</span>
-                  <span>現在 {curPriceLabel}</span>
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-sm font-bold">{it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}</span>
+                <div className="mt-2 space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">購入金額</span>
+                    <span className="text-xs text-gray-400">{amountLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">現在評価額</span>
+                    <span className="text-sm font-bold">{it.current_value_jpy != null ? jpy(it.current_value_jpy) : '-'}</span>
+                  </div>
                   {it.pnl_jpy != null && (
-                    <span className={`text-xs font-semibold ${pnlColor(it.pnl_jpy)}`}>
-                      {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
-                      {it.pnl_pct != null && ` (${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%)`}
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">損益</span>
+                      <span className={`text-sm font-semibold ${pnlColor(it.pnl_jpy)}`}>
+                        {pnlSign(it.pnl_jpy)}{jpy(it.pnl_jpy)}
+                        {it.pnl_pct != null && ` (${pnlSign(it.pnl_pct)}${it.pnl_pct.toFixed(2)}%)`}
+                      </span>
+                    </div>
                   )}
                 </div>
               </div>

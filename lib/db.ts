@@ -26,9 +26,9 @@ export interface NisaTsumitate {
   purchase_price: number;
   start_date: string;
   // 基準日方式
-  baseline_units:     number;       // 基準日時点の保有口数（0 = 基準なし）
-  baseline_avg_price: number;       // 基準日時点の平均取得単価（円/万口）
-  accumulation_day:   number | null; // 毎月の積立日（null = start_date の日付を使用）
+  baseline_amount:  number;        // 基準日時点の投資総額（円）
+  baseline_nav:     number;        // 基準日時点の基準価額（0 = インデックスから自動推定）
+  accumulation_day: number | null; // 毎月の積立日（null = start_date の日付を使用）
   created_at: string;
 }
 
@@ -39,8 +39,8 @@ export interface NisaGrowth {
   market: 'JP' | 'US';
   code: string;
   fund_name: string;
-  units_or_shares: number;
-  purchase_price: number;
+  purchase_amount: number; // 購入金額（円 or ドル）
+  purchase_nav:    number; // 購入時の基準価額（投信: ¥/万口、株: ¥ or $ per share）
   purchase_date: string;
   created_at: string;
 }

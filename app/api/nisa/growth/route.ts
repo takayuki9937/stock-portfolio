@@ -45,10 +45,8 @@ function calcYearlyUsed(rows: NisaGrowth[], usdJpy: number): number {
   return rows.reduce((sum, r) => {
     const py = new Date(r.purchase_date).getFullYear();
     if (py !== year) return sum;
-    const amountNative = r.type === 'fund'
-      ? r.units_or_shares * r.purchase_price / 10000
-      : r.units_or_shares * r.purchase_price;
-    return sum + (r.market === 'US' ? amountNative * usdJpy : amountNative);
+    const amountJpy = r.market === 'US' ? r.purchase_amount * usdJpy : r.purchase_amount;
+    return sum + amountJpy;
   }, 0);
 }
 
@@ -67,23 +65,17 @@ export async function GET(req: NextRequest) {
 
   const items = await Promise.all((rows as NisaGrowth[]).map(async (r) => {
     const price = await (r.type === 'fund' ? fetchFundNav(r.code) : fetchStockPrice(r.code));
-    let current_value_jpy: number | null = null;
-    let cost_jpy: number;
 
-    if (r.type === 'fund') {
-      current_value_jpy = price != null ? r.units_or_shares * price / 10000 : null;
-      cost_jpy = r.units_or_shares * r.purchase_price / 10000;
-      if (r.market === 'US') { cost_jpy *= usdJpy; if (current_value_jpy) current_value_jpy *= usdJpy; }
-    } else {
-      const valueNative = price != null ? r.units_or_shares * price : null;
-      const costNative  = r.units_or_shares * r.purchase_price;
-      if (r.market === 'US') {
-        current_value_jpy = valueNative != null ? valueNative * usdJpy : null;
-        cost_jpy = costNative * usdJpy;
-      } else {
-        current_value_jpy = valueNative;
-        cost_jpy = costNative;
-      }
+    // 購入金額（ローカル通貨）× 上昇率 = 現在評価額
+    // 上昇率 = 現在価格 / 購入時価格
+    const cost_jpy = r.market === 'US' ? r.purchase_amount * usdJpy : r.purchase_amount;
+    let current_value_jpy: number | null = null;
+
+    if (price != null && r.purchase_nav > 0) {
+      const ratio = price / r.purchase_nav;
+      current_value_jpy = r.market === 'US'
+        ? r.purchase_amount * ratio * usdJpy
+        : r.purchase_amount * ratio;
     }
 
     const pnl_jpy = current_value_jpy != null ? current_value_jpy - cost_jpy : null;
@@ -97,8 +89,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const { userId, type, market, code, fund_name, units_or_shares, purchase_price, purchase_date } = body;
-  if (!userId || !type || !market || !code || !fund_name || units_or_shares == null || purchase_price == null || !purchase_date) {
+  const { userId, type, market, code, fund_name, purchase_amount, purchase_nav, purchase_date } = body;
+  if (!userId || !type || !market || !code || !fund_name || purchase_amount == null || purchase_nav == null || !purchase_date) {
     return NextResponse.json({ error: '必須項目が不足しています' }, { status: 400 });
   }
   const { data, error } = await supabase
@@ -109,8 +101,8 @@ export async function POST(req: NextRequest) {
       market,
       code,
       fund_name,
-      units_or_shares: Number(units_or_shares),
-      purchase_price: Number(purchase_price),
+      purchase_amount: Number(purchase_amount),
+      purchase_nav:    Number(purchase_nav),
       purchase_date,
     })
     .select('id')
