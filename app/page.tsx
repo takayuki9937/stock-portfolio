@@ -663,13 +663,22 @@ export default function PortfolioPage() {
   const [activeUserId, setActiveUserId] = useState<number | null>(null);
   const [usdJpy, setUsdJpy]           = useState<number | null>(null);
   const [fxLoading, setFxLoading]     = useState(true);
+  const [usersError, setUsersError]   = useState(false);
 
   // 集計用（各セグメントから持ち上げるのは複雑なので、サマリーは概算で為替レートのみ依存）
   useEffect(() => {
-    fetch('/api/users').then((r) => r.json()).then((data: User[]) => {
-      setUsers(data);
-      if (data.length > 0) setActiveUserId(data[0].id);
-    });
+    fetch('/api/users')
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`users fetch failed: ${r.status}`);
+        const data = await r.json();
+        if (!Array.isArray(data)) throw new Error('users response is not an array');
+        return data as User[];
+      })
+      .then((data) => {
+        setUsers(data);
+        if (data.length > 0) setActiveUserId(data[0].id);
+      })
+      .catch(() => setUsersError(true));
     fetch('/api/forex').then((r) => r.json()).then((d) => {
       setUsdJpy(d.rate ?? null);
       setFxLoading(false);
@@ -697,6 +706,20 @@ export default function PortfolioPage() {
       </div>
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+        {usersError && (
+          <div role="alert" className="bg-red-950/40 border border-red-800 rounded-xl p-5 mb-5 text-center">
+            <p className="text-red-300 font-semibold">データベースに接続できません。</p>
+            <p className="text-red-300/80 text-sm mt-1">
+              Supabaseが一時停止している可能性があります。<br />
+              管理者にお知らせください。
+            </p>
+            <button type="button" onClick={() => window.location.reload()}
+              className="mt-4 bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors min-h-[44px]">
+              再読み込み
+            </button>
+          </div>
+        )}
+
         {/* 為替レート */}
         <div className="flex items-center gap-2 mb-5 text-sm">
           {fxLoading ? (
